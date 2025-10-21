@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Credit Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom Styles for better aesthetics and mobile responsiveness */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        :root {
+            --primary-color: #4f46e5;
+            --primary-dark: #4338ca;
+            --success-color: #10b981;
+            --error-color: #ef4444;
+        }
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .calculator-container {
+            max-width: 480px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .input-group label { color: #374151; font-weight: 600; margin-bottom: 0.5rem; }
+        input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); }
+        button {
+            transition: background-color 0.15s ease-in-out, transform 0.1s ease-in-out;
+            background-color: var(--primary-color);
+        }
+        button:hover { background-color: var(--primary-dark); transform: translateY(-1px); }
+        .output-box { border-left: 4px solid var(--success-color); background-color: #ecfdf5; }
+        .error-message { color: var(--error-color); font-weight: 600; margin-top: 1rem; }
+        .loading-indicator {
+            padding: 0.5rem;
+            text-align: center;
+            color: var(--primary-color);
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div id="app" class="calculator-container">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">SLA Credit Calculator</h1>
+        
+        <form id="credit-form" onsubmit="event.preventDefault(); calculateCredit();">
+            <!-- Account Information - ONLY Account Name remains -->
+            <div class="space-y-4 mb-6">
+                <div class="input-group">
+                    <label for="account-name" class="block text-sm">Account Name</label>
+                    <input type="text" id="account-name" required placeholder="Customer A Corp" class="w-full p-2 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+
+            <!-- Date and Financial Information -->
+            <div class="space-y-4 mb-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="input-group">
+                        <label for="open-date" class="block text-sm">Ticket Open Date</label>
+                        <input type="date" id="open-date" required class="w-full p-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div class="input-group">
+                        <label for="resolved-date" class="block text-sm">Ticket Resolved Date</label>
+                        <input type="date" id="resolved-date" required class="w-full p-2 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+
+                <div class="input-group flex items-center space-x-2 pt-2">
+                    <input type="checkbox" id="include-weekends" class="form-checkbox h-5 w-5 text-indigo-600 rounded">
+                    <label for="include-weekends" class="text-sm font-medium text-gray-600 select-none">Include Weekends (7-day calculation)</label>
+                </div>
+
+                <div class="input-group">
+                    <label for="arr" class="block text-sm">Annual Recurring Revenue (ARR)</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">$</span>
+                        <input type="number" id="arr" required min="0" step="0.01" placeholder="10000.00" class="w-full p-2 pl-7 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="w-full py-3 text-white font-bold rounded-lg shadow-md">
+                Calculate Credit
+            </button>
+        </form>
+
+        <!-- Results and Error Messages -->
+        <div id="loading" class="loading-indicator hidden">
+            Calculating...
+        </div>
+        <div id="results" class="hidden mt-6 p-4 rounded-lg output-box shadow-sm">
+            <h2 class="text-xl font-semibold text-gray-800 mb-2">Calculation Results</h2>
+            <div class="flex justify-between py-1">
+                <span class="text-gray-600">Calculated Days:</span>
+                <span id="days-calculated" class="text-lg font-bold">0</span>
+            </div>
+            <div class="flex justify-between py-1">
+                <span class="text-gray-600">Total Credit Due:</span>
+                <span id="credit-due" class="text-2xl font-extrabold text-success-color">$0.00</span>
+            </div>
+        </div>
+        <p id="alert-message" class="error-message text-center hidden">Date validation error.</p>
+    </div>
+
+    <!-- Client-Side JavaScript Logic -->
+    <script>
+        // Make function globally accessible
+        window.calculateCredit = calculateCredit;
+
+        /**
+         * Calculates the number of days between two dates, excluding weekends if specified.
+         * The count is exclusive of the open date and inclusive of the resolved date if it's a valid day.
+         * @param {Date} startDate 
+         * @param {Date} endDate 
+         * @param {boolean} includeWeekends 
+         * @returns {number}
+         */
+        function calculateDaysDifference(startDate, endDate, includeWeekends) {
+            const oneDay = 1000 * 60 * 60 * 24;
+            
+            // If including weekends, simply calculate total days
+            if (includeWeekends) {
+                const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+                // Use Math.round for accurate day counting across timezones/DST, as the dates are pure date inputs.
+                return Math.round(diffTime / oneDay);
+            }
+
+            // Business day calculation (excluding Sat/Sun)
+            let businessDays = 0;
+            
+            // Start iterating from the day *after* the open date
+            let tempDate = new Date(startDate.getTime());
+            tempDate.setDate(tempDate.getDate() + 1); 
+
+            // Set to noon to avoid Daylight Savings Time (DST) issues
+            tempDate.setHours(12, 0, 0, 0); 
+            const resolvedDateNoon = new Date(endDate.getTime());
+            resolvedDateNoon.setHours(12, 0, 0, 0);
+
+            while (tempDate <= resolvedDateNoon) {
+                const dayOfWeek = tempDate.getDay(); // 0 = Sunday, 6 = Saturday
+                // Check if it's a weekday (Monday=1 to Friday=5)
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    businessDays++;
+                }
+                tempDate.setDate(tempDate.getDate() + 1); // Move to the next day
+            }
+            return businessDays;
+        }
+
+        /**
+         * The main function to calculate credit and display the result.
+         */
+        function calculateCredit() {
+            const loadingEl = document.getElementById('loading');
+            const resultsEl = document.getElementById('results');
+            const alertEl = document.getElementById('alert-message');
+            
+            loadingEl.classList.remove('hidden');
+            resultsEl.classList.add('hidden');
+            alertEl.classList.add('hidden');
+
+            // --- 1. Get Input Values ---
+            const accountName = document.getElementById('account-name').value.trim();
+            // Removed SF ID and Ticket Number variables
+            const openDateStr = document.getElementById('open-date').value;
+            const resolvedDateStr = document.getElementById('resolved-date').value;
+            const includeWeekends = document.getElementById('include-weekends').checked;
+            const arrInput = document.getElementById('arr').value;
+            const arr = parseFloat(arrInput);
+
+            // --- 2. Validation: Check only Account Name, Dates, and ARR ---
+            if (!accountName || !openDateStr || !resolvedDateStr || isNaN(arr)) {
+                alertEl.textContent = 'Please fill out all required fields.';
+                alertEl.classList.remove('hidden');
+                loadingEl.classList.add('hidden');
+                return;
+            }
+
+            const openDate = new Date(openDateStr);
+            const resolvedDate = new Date(resolvedDateStr);
+
+            if (openDate >= resolvedDate) {
+                alertEl.textContent = 'Resolved Date must be strictly after the Open Date.';
+                alertEl.classList.remove('hidden');
+                loadingEl.classList.add('hidden');
+                return;
+            }
+
+            // --- 3. Calculation Logic ---
+            const days = calculateDaysDifference(openDate, resolvedDate, includeWeekends);
+            
+            // Final Credit Calculation: ARR / 365 * Number of days calculated
+            const creditDue = (arr / 365) * days;
+
+            // --- 4. Display Results ---
+            document.getElementById('days-calculated').textContent = days;
+            document.getElementById('credit-due').textContent = '$' + creditDue.toFixed(2);
+            
+            resultsEl.classList.remove('hidden');
+            loadingEl.classList.add('hidden');
+        }
+
+    </script>
+</body>
+</html>
